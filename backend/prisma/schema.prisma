@@ -1,0 +1,554 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── COMPANY & PLANTS ─────────────────────────────────────────────────────────
+
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String
+  code      String   @unique
+  createdAt DateTime @default(now())
+  plants    Plant[]
+}
+
+model Plant {
+  id          Int      @id @default(autoincrement())
+  name        String
+  code        String   @unique
+  location    String
+  timezone    String   @default("Asia/Kolkata")
+  isActive    Boolean  @default(true)
+  companyId   Int
+  company     Company  @relation(fields: [companyId], references: [id])
+  createdAt   DateTime @default(now())
+  lines       Line[]
+  users       User[]
+  skus        SKU[]
+  shiftLogs   ShiftLog[]
+  alerts      Alert[]
+  productionEntries  ProductionDailyEntry[]
+  qseEntries         QseDailyEntry[]
+  maintenanceEntries MaintenanceDailyEntry[]
+  hrEntries          HrDailyEntry[]
+  storesEntries      StoresDailyEntry[]
+  safetyMetrics      SafetyMetric[]
+  qualityMetrics     QualityMetric[]
+  envMetrics         EnvironmentMetric[]
+  vehicleLogs        VehicleLog[]
+}
+
+// ─── PRODUCTION LINES ─────────────────────────────────────────────────────────
+
+model Line {
+  id              Int      @id @default(autoincrement())
+  name            String
+  code            String
+  plantId         Int
+  plant           Plant    @relation(fields: [plantId], references: [id])
+  ratedSpeed      Float    @default(0)  // units per hour (standard speed)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  equipment       Equipment[]
+  shiftLogs       ShiftLog[]
+  downtimeLogs    DowntimeLog[]
+  qualityLogs     QualityLog[]
+  changeoverLogs  ChangeoverLog[]
+  utilityLogs     UtilityLog[]
+
+  @@unique([plantId, code])
+}
+
+// ─── EQUIPMENT PER LINE ───────────────────────────────────────────────────────
+
+model Equipment {
+  id           Int           @id @default(autoincrement())
+  name         String
+  code         String
+  lineId       Int
+  line         Line          @relation(fields: [lineId], references: [id])
+  category     EquipCategory @default(PRODUCTION)
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  downtimeLogs DowntimeLog[]
+}
+
+// ─── SKU MASTER ───────────────────────────────────────────────────────────────
+
+model SKU {
+  id            Int      @id @default(autoincrement())
+  name          String
+  code          String
+  plantId       Int
+  plant         Plant    @relation(fields: [plantId], references: [id])
+  sizeML        Int?
+  packageType   String?
+  ratedSpeed    Float?   // override rated speed for this SKU
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  shiftLogs     ShiftLog[]
+  qualityLogs   QualityLog[]
+  changeoverLogs ChangeoverLog[]
+
+  @@unique([plantId, code])
+}
+
+// ─── EMPLOYEES ────────────────────────────────────────────────────────────────
+
+model User {
+  id           Int        @id @default(autoincrement())
+  empId        String?    @unique
+  name         String
+  email        String?    @unique
+  phone        String?    @unique
+  password     String
+  role         Role       @default(OPERATOR)
+  designation  String?
+  plantId      Int?
+  plant        Plant?     @relation(fields: [plantId], references: [id])
+  department   String?
+  contactNo    String?
+  status       UserStatus @default(ACTIVE)
+  isHR         Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  shiftLogs    ShiftLog[] @relation("SubmittedBy")
+  reviewed     ShiftLog[] @relation("ReviewedBy")
+  alerts       Alert[]
+  vehicleLogs  VehicleLog[]
+}
+
+// ─── SHIFT LOG (Main Entry) ───────────────────────────────────────────────────
+
+model ShiftLog {
+  id                Int       @id @default(autoincrement())
+  date              DateTime
+  shift             ShiftType
+  plantId           Int
+  plant             Plant     @relation(fields: [plantId], references: [id])
+  lineId            Int
+  line              Line      @relation(fields: [lineId], references: [id])
+  skuId             Int?
+  sku               SKU?      @relation(fields: [skuId], references: [id])
+  skuName           String?
+
+  // Production
+  targetQty         Int       @default(0)
+  grossProduction   Int       @default(0)  // total produced
+  goodQty           Int       @default(0)  // passed QC
+  rejectedQty       Int       @default(0)
+
+  // Time
+  shiftDuration     Int       @default(480) // minutes
+  plannedDowntime   Int       @default(0)
+  unplannedDowntime Int       @default(0)
+  changeoverTime    Int       @default(0)
+  runTime           Int       @default(0)  // calculated
+
+  // OEE (auto-calculated)
+  oeeAvailability   Float?
+  oeePerformance    Float?
+  oeeQuality        Float?
+  oeeScore          Float?
+
+  // Status
+  status            LogStatus @default(PENDING)
+  remarks           String?
+  userId            Int
+  submittedBy       User      @relation("SubmittedBy", fields: [userId], references: [id])
+  reviewerId        Int?
+  reviewedBy        User?     @relation("ReviewedBy", fields: [reviewerId], references: [id])
+  reviewedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Related logs
+  downtimeLogs      DowntimeLog[]
+  qualityLogs       QualityLog[]
+  changeoverLogs    ChangeoverLog[]
+  utilityLogs       UtilityLog[]
+}
+
+// ─── DOWNTIME LOG ─────────────────────────────────────────────────────────────
+
+model DowntimeLog {
+  id            Int           @id @default(autoincrement())
+  shiftLogId    Int
+  shiftLog      ShiftLog      @relation(fields: [shiftLogId], references: [id])
+  lineId        Int
+  line          Line          @relation(fields: [lineId], references: [id])
+  equipmentId   Int
+  equipment     Equipment     @relation(fields: [equipmentId], references: [id])
+  type          DowntimeType
+  durationMins  Int
+  reason        String
+  actionTaken   String?
+  createdAt     DateTime      @default(now())
+}
+
+// ─── QUALITY LOG ──────────────────────────────────────────────────────────────
+
+model QualityLog {
+  id           Int      @id @default(autoincrement())
+  shiftLogId   Int
+  shiftLog     ShiftLog @relation(fields: [shiftLogId], references: [id])
+  lineId       Int
+  line         Line     @relation(fields: [lineId], references: [id])
+  skuId        Int?
+  sku          SKU?     @relation(fields: [skuId], references: [id])
+  rejectQty    Int
+  rejectReason String
+  rejectStage  String?  // e.g. "Blowing", "Filling", "Labelling"
+  createdAt    DateTime @default(now())
+}
+
+// ─── CHANGEOVER LOG ───────────────────────────────────────────────────────────
+
+model ChangeoverLog {
+  id            Int      @id @default(autoincrement())
+  shiftLogId    Int
+  shiftLog      ShiftLog @relation(fields: [shiftLogId], references: [id])
+  lineId        Int
+  line          Line     @relation(fields: [lineId], references: [id])
+  fromSkuId     Int?
+  fromSku       SKU?     @relation(fields: [fromSkuId], references: [id])
+  toSkuName     String?
+  durationMins  Int
+  reason        String?
+  createdAt     DateTime @default(now())
+}
+
+// ─── UTILITY LOG (Boiler etc) ─────────────────────────────────────────────────
+
+model UtilityLog {
+  id           Int         @id @default(autoincrement())
+  shiftLogId   Int
+  shiftLog     ShiftLog    @relation(fields: [shiftLogId], references: [id])
+  lineId       Int
+  line         Line        @relation(fields: [lineId], references: [id])
+  utilityType  UtilityType
+  reading      Float
+  unit         String      // "bar", "°C", "kWh", "m³"
+  recordedAt   DateTime    @default(now())
+  notes        String?
+}
+
+// ─── ALERTS ───────────────────────────────────────────────────────────────────
+
+model Alert {
+  id        Int           @id @default(autoincrement())
+  plantId   Int
+  plant     Plant         @relation(fields: [plantId], references: [id])
+  userId    Int?
+  user      User?         @relation(fields: [userId], references: [id])
+  type      AlertType
+  severity  AlertSeverity
+  title     String
+  message   String
+  isRead    Boolean       @default(false)
+  createdAt DateTime      @default(now())
+}
+
+// ─── AUDIT LOG ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  plantId   Int?
+  action    String
+  targetId  Int?
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum VehicleStatus {
+  GATE_IN
+  DOCK_REPORT
+  LOADING
+  INVOICE
+  GATE_EXIT
+  COMPLETED
+}
+
+enum Role {
+  OPERATOR
+  SHIFT_SUPERVISOR
+  PLANT_MANAGER
+  ADMIN
+  GLOBAL_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LogStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ShiftType {
+  A
+  B
+  C
+  GENERAL
+}
+
+enum EquipCategory {
+  PRODUCTION
+  UTILITY
+  QUALITY
+}
+
+enum DowntimeType {
+  PLANNED
+  UNPLANNED
+}
+
+enum UtilityType {
+  BOILER_PRESSURE
+  BOILER_TEMPERATURE
+  COMPRESSED_AIR
+  ELECTRICITY_KWH
+  WATER_M3
+  CHILLER_TEMP
+}
+
+enum AlertType {
+  HIGH_DOWNTIME
+  LOW_OEE
+  TARGET_MISSED
+  QUALITY_ALERT
+  UTILITY_ABNORMAL
+  PENDING_REVIEW
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ─── DMS DAILY ENTRIES ────────────────────────────────────────────────────────
+
+model ProductionDailyEntry {
+  id                    Int       @id @default(autoincrement())
+  date                  DateTime  @db.Date
+  shift                 ShiftType @default(GENERAL)
+  plantId               Int
+  plant                 Plant     @relation(fields: [plantId], references: [id])
+  volumeKhsPdw          Float?
+  volumeKronesCsd       Float?
+  volumeTetra           Float?
+  meKhsPdw              Float?
+  meKronesCsd           Float?
+  meTetra               Float?
+  downtimeKhsPdw        Float?
+  downtimeKronesCsd     Float?
+  downtimeTetra         Float?
+  preformYieldKhsPdw    Float?
+  preformYieldKronesCsd Float?
+  closureYieldKhsPdw    Float?
+  closureYieldKronesCsd Float?
+  cipFlushing           Float?
+  co2YieldPlant         Float?
+  openPoKhsPdw          Int?
+  openPoKronesCsd       Int?
+  openPoTetra           Int?
+  next24hrsPlan         String?
+  criticalIssues        String?
+  status                LogStatus @default(PENDING)
+  userId                Int
+  reviewerId            Int?
+  reviewedAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([date, plantId, shift])
+}
+
+model QseDailyEntry {
+  id                   Int      @id @default(autoincrement())
+  date                 DateTime @db.Date
+  plantId              Int
+  plant                Plant    @relation(fields: [plantId], references: [id])
+  tbtCompliance        Float?
+  bbsPercent           Float?
+  ucUaPercent          Float?
+  nearMissSifis        Int?
+  criticalSafetyIssue  String?
+  waterUsageRatio      Float?
+  concentrateYield     Float?
+  sugarYield           Float?
+  pulpYield            Float?
+  totalRawSyrup        Float?
+  numCips              Int?
+  criticalQualityIssue String?
+  etpDischarge         Float?
+  etpInlet             Float?
+  etpRoDischarge       Float?
+  stpDischarge         Float?
+  criticalEnvIssue     String?
+  userId               Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([date, plantId])
+}
+
+model SafetyMetric {
+  id                   Int      @id @default(autoincrement())
+  date                 DateTime @db.Date
+  plantId              Int
+  plant                Plant    @relation(fields: [plantId], references: [id])
+  tbtCompliance        Float?
+  bbsPercent           Float?
+  ucUaPercent          Float?
+  nearMissSifis        Int?
+  criticalSafetyIssue  String?
+  userId               Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([date, plantId])
+}
+
+model QualityMetric {
+  id                   Int      @id @default(autoincrement())
+  date                 DateTime @db.Date
+  plantId              Int
+  plant                Plant    @relation(fields: [plantId], references: [id])
+  waterUsageRatio      Float?
+  concentrateYield     Float?
+  sugarYield           Float?
+  pulpYield            Float?
+  totalRawSyrup        Float?
+  numCips              Int?
+  criticalQualityIssue String?
+  userId               Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([date, plantId])
+}
+
+model EnvironmentMetric {
+  id                   Int      @id @default(autoincrement())
+  date                 DateTime @db.Date
+  plantId              Int
+  plant                Plant    @relation(fields: [plantId], references: [id])
+  etpDischarge         Float?
+  etpInlet             Float?
+  etpRoDischarge       Float?
+  stpDischarge         Float?
+  criticalEnvIssue     String?
+  userId               Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([date, plantId])
+}
+
+model MaintenanceDailyEntry {
+  id                  Int      @id @default(autoincrement())
+  date                DateTime @db.Date
+  plantId             Int
+  plant               Plant    @relation(fields: [plantId], references: [id])
+  breakdownCount      Int?
+  pmCompliance        Float?
+  steamGenerated      Float?   // Steam Generated (Tons)
+  fuelUsed            Float?   // Fuel Used
+  electricityConsumed Float?   // Electricity Consumed (Units)
+  solarUnits          Float?   // Solar Units (Units)
+  dieselConsumption   Float?   // Diesel Consumption (Liters)
+  dgUnits             Float?   // DG Units (Units)
+  eur                 Float?   // EUR %
+  pur                 Float?   // PUR %
+  fur                 Float?   // FUR %
+  criticalIssue       String?
+  remarks             String?
+  userId              Int
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([date, plantId])
+}
+
+model HrDailyEntry {
+  id                   Int      @id @default(autoincrement())
+  date                 DateTime @db.Date
+  plantId              Int
+  plant                Plant    @relation(fields: [plantId], references: [id])
+  manpowerProductivity Float?
+  totalOpenPosition    Int?
+  noCases              Int?     // No. of Cases
+  totalManpower        Int?     // Total Manpower
+  contractual          Int?     // Contractual headcount
+  ownPermanent         Int?     // Own/Permanent headcount
+  criticalHrIssue      String?
+  userId               Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([date, plantId])
+}
+
+model StoresDailyEntry {
+  id               Int      @id @default(autoincrement())
+  date             DateTime @db.Date
+  plantId          Int
+  plant            Plant    @relation(fields: [plantId], references: [id])
+  plannedOrders    Int?     // Planned Orders
+  dispatchedOrders Int?     // Dispatched Orders
+  palletizedOrders Int?     // Palletized Orders
+  manualOrders     Int?     // Manual Orders
+  totalVehicles    Int?     // Total Vehicles
+  currentStock     Float?   // Current Stock
+  remarks          String?
+  criticalIssue    String?
+  userId           Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([date, plantId])
+}
+
+// ─── VEHICLE TRACKING SYSTEM ──────────────────────────────────────────────────
+
+model VehicleLog {
+  id              Int           @id @default(autoincrement())
+  tokenNumber     Int           @unique @default(autoincrement())
+  vehicleNumber   String
+  transporterName String
+  destination     String?
+  driverContact   String
+  vehicleCapacity String?
+  agency          String?
+  shift           ShiftType
+  supplyLoaded    Float?
+  status          VehicleStatus @default(GATE_IN)
+
+  plantId         Int
+  plant           Plant         @relation(fields: [plantId], references: [id])
+  
+  gateInTime      DateTime      @default(now())
+  dockReportTime  DateTime?
+  loadingTime     DateTime?
+  invoiceTime     DateTime?
+  gateExitTime    DateTime?
+  
+  userId          Int
+  recordedBy      User          @relation(fields: [userId], references: [id])
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
