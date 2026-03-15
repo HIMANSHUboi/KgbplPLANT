@@ -16,6 +16,11 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
+    // Normalize backend error objects into strings to prevent React rendering errors globally
+    if (err.response?.data?.error && typeof err.response.data.error === 'object') {
+      err.response.data.error = err.response.data.error.message || JSON.stringify(err.response.data.error);
+    }
+    
     const original = err.config;
     if (err.response?.status === 401 && !original._retry) {
       original._retry = true;

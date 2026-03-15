@@ -62,7 +62,7 @@ export default function LoginPage() {
 
           {error && (
             <div className="bg-pf-red/10 border border-pf-red/30 rounded-lg px-3.5 py-2.5 text-[13px] text-pf-red mb-4 animate-fade-in">
-              {error}
+              {typeof error === 'object' ? (error.message || JSON.stringify(error)) : error}
             </div>
           )}
 
