@@ -63,7 +63,7 @@ exports.login = async (req, res) => {
     });
   } catch (err) {
     logger.error(`login: ${err.message}`);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: `Login failed: ${err.message}` });
   }
 };
 
