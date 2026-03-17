@@ -29,7 +29,8 @@ export default function LoginPage() {
       signin(data.token, data.user);
       navigate(data.user.role === 'OPERATOR' ? '/submit' : '/');
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      const raw = err.response?.data?.error ?? err.response?.data?.message ?? err.message ?? 'Login failed';
+      setError(typeof raw === 'string' ? raw : (raw?.message || JSON.stringify(raw)));
     } finally { setLoading(false); }
   };
 
