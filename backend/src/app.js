@@ -9,11 +9,18 @@ const app = express();
 // Security
 app.use(helmet());
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL,
-    'http://localhost:5173',
-    'https://kgbpl-plant.vercel.app'
-  ].filter(Boolean),
+  origin: function (origin, callback) {
+    const allowed = [
+      'http://localhost:5173',
+      process.env.FRONTEND_URL,
+    ].filter(Boolean);
+    // Allow any *.vercel.app subdomain and localhost
+    if (!origin || allowed.includes(origin) || /\.vercel\.app$/.test(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 
